@@ -341,30 +341,30 @@ function AuthScreen({ onComplete }) {
 
   const handleFinish = async () => {
     setError('');
-    const profileData = buildProfile();
-
     if (!firebaseEnabled) {
-      onComplete(profileData);
+      onComplete(buildProfile());
       return;
     }
 
     setLoading(true);
     try {
-      const { sendSignInLinkToEmail } = await import('./firebase.js');
+      const { createUserWithEmailAndPassword, updateProfile, sendEmailVerification, doc, setDoc, db } = await import('./firebase.js');
 
-      const actionCodeSettings = {
-        url: `${window.location.origin}${window.location.pathname}?emailLinkSignIn=1`,
-        handleCodeInApp: true,
-      };
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        email.trim(),
+        Math.random().toString(36).slice(-10)
+      );
 
-      window.localStorage.setItem('emailForSignIn', email.trim());
-      window.localStorage.setItem('pendingOpusProfile', JSON.stringify(profileData));
+      await updateProfile(cred.user, { displayName: name.trim() });
+      await sendEmailVerification(cred.user);
 
-      await sendSignInLinkToEmail(auth, email.trim(), actionCodeSettings);
+      const profileData = buildProfile({ uid: cred.user.uid });
+      await setDoc(doc(db, 'users', cred.user.uid), profileData);
 
-      setError('Check your email for the sign-in link, then open it on this same device.');
+      onComplete(profileData);
     } catch (err) {
-      setError(err.message || 'Something went wrong sending the sign-in link.');
+      setError(err.message || 'Something went wrong creating your account.');
     } finally {
       setLoading(false);
     }
@@ -1878,62 +1878,6 @@ export default function App() {
   const [splashFading, setSplashFading] = useState(false);
   const [profile, setProfile] = useLocalStorage('opus-profile', null);
   const ActiveScreen = tabs.find(t => t.id === tab).component;
-
-  useEffect(() => {
-    const completeEmailLinkSignIn = async () => {
-      if (!firebaseEnabled) return;
-
-      try {
-        const { isSignInWithEmailLink, signInWithEmailLink, doc, getDoc, setDoc, db } = await import('./firebase.js');
-
-        if (!isSignInWithEmailLink(auth, window.location.href)) return;
-
-        let emailForSignIn = window.localStorage.getItem('emailForSignIn');
-
-        if (!emailForSignIn) {
-          emailForSignIn = window.prompt('Please confirm your email address');
-        }
-
-        if (!emailForSignIn) return;
-
-        const result = await signInWithEmailLink(auth, emailForSignIn, window.location.href);
-        window.localStorage.removeItem('emailForSignIn');
-
-        const userRef = doc(db, 'users', result.user.uid);
-        const snap = await getDoc(userRef);
-
-        if (snap.exists()) {
-          setProfile(snap.data());
-        } else {
-          const pendingProfile = JSON.parse(window.localStorage.getItem('pendingOpusProfile') || '{}');
-          window.localStorage.removeItem('pendingOpusProfile');
-
-          const derivedInitials = result.user.displayName
-            ? result.user.displayName.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
-            : (pendingProfile.initials || '?');
-
-          const profileData = {
-            ...pendingProfile,
-            uid: result.user.uid,
-            name: pendingProfile.name || result.user.displayName || (result.user.email ? result.user.email.split('@')[0] : 'New user'),
-            initials: derivedInitials,
-            email: result.user.email || emailForSignIn,
-            photoURL: result.user.photoURL || null,
-            needsOnboarding: true,
-          };
-
-          await setDoc(userRef, profileData);
-          setProfile(profileData);
-        }
-
-        window.history.replaceState({}, document.title, window.location.origin);
-      } catch (err) {
-        console.error('Failed to complete email link sign-in:', err);
-      }
-    };
-
-    completeEmailLinkSignIn();
-  }, [setProfile]);
 
   useEffect(() => {
     if (profile && !profile.isExample) {
