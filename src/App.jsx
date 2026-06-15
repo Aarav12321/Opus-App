@@ -353,7 +353,7 @@ function AuthScreen({ onComplete }) {
       const { sendSignInLinkToEmail } = await import('./firebase.js');
 
       const actionCodeSettings = {
-        url: window.location.origin,
+        url: window.location.href.split('?')[0],
         handleCodeInApp: true,
       };
 
